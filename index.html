@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SPRINT Analyzer Pro V8.2</title>
+    <title>SPRINT Analyzer Pro V8.3</title>
     <!-- Chart.js & Plugins -->
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
@@ -53,7 +53,7 @@
 <body>
     <div class="container">
         <div class="header">
-            <h1 style="color:var(--accent); margin-bottom: 5px;">⚡ SPRINT: Interactive SIT Analyzer V8.2</h1>
+            <h1 style="color:var(--accent); margin-bottom: 5px;">⚡ SPRINT: Interactive SIT Analyzer V8.3</h1>
             <p style="color:var(--text-muted); margin-top: 0;">Automated Segmentation, Global AIC Modeling & Detrended Sinusoidal Synchronization</p>
         </div>
 
@@ -92,10 +92,10 @@
         </div>
 
         <div class="panel" id="metricsPanel" style="display:none;">
-            <div class="panel-header"><h3>Data Quality & Global Modeling</h3></div>
+            <div class="panel-header"><h3>Data Quality, Imputation & Global Modeling</h3></div>
             <div class="flex-row">
                 <div class="metric-card"><div class="metric-title">Data Resolution</div><div class="metric-val" id="dataRes">--</div></div>
-                <div class="metric-card"><div class="metric-title">Outliers Removed</div><div class="metric-val" id="outliersRemoved" style="color:var(--warning);">--</div></div>
+                <div class="metric-card"><div class="metric-title">Missing & Imputed Points</div><div class="metric-val" id="outliersRemoved" style="color:var(--warning);">--</div></div>
                 <div class="metric-card"><div class="metric-title">SmO₂ Global Best Fit</div><div class="metric-val" id="globalBestSmo2">--</div></div>
                 <div class="metric-card"><div class="metric-title">HR Global Best Fit</div><div class="metric-val" id="globalBestHr" style="color:var(--hr);">--</div></div>
             </div>
@@ -291,11 +291,11 @@
             }
         });
 
-        function removeOutliers(data, key) {
-            let window = 11;
+        function cleanAndImpute(data, key, timeArr) {
+            let windowSize = 11;
             let cleanData = JSON.parse(JSON.stringify(data)); 
-            let residuals = [];
             let outlierCount = 0;
+            let imputedFlags = new Array(data.length).fill(false);
             
             function getMedian(arr) {
                 let sorted = [...arr].sort((a,b)=>a-b);
@@ -303,35 +303,68 @@
                 return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid-1] + sorted[mid]) / 2;
             }
 
+            // 1. Detect Outliers (Median Filter IQR) and flag as null
             for (let i = 0; i < data.length; i++) {
-                let start = Math.max(0, i - Math.floor(window/2));
-                let end = Math.min(data.length, i + Math.floor(window/2));
+                let start = Math.max(0, i - Math.floor(windowSize/2));
+                let end = Math.min(data.length, i + Math.floor(windowSize/2));
                 let slice = data.slice(start, end).map(d => d[key]).filter(v => v !== null && !isNaN(v));
-                if (slice.length > 0) {
-                    let trend = getMedian(slice); // Use median to prevent artifacts from skewing the mean
-                    if(data[i][key] !== null && !isNaN(data[i][key])) {
-                        residuals.push({ index: i, val: data[i][key], trend: trend, res: data[i][key] - trend });
+                
+                let val = data[i][key];
+                if (slice.length > 0 && val !== null && !isNaN(val)) {
+                    let trend = getMedian(slice);
+                    let resVals = [];
+                    for(let j = start; j < end; j++) {
+                        let v = data[j][key];
+                        if(v !== null && !isNaN(v)) {
+                            let localSlice = data.slice(Math.max(0, j - Math.floor(windowSize/2)), Math.min(data.length, j + Math.floor(windowSize/2))).map(d=>d[key]).filter(x=>x!==null&&!isNaN(x));
+                            if(localSlice.length > 0) resVals.push(v - getMedian(localSlice));
+                        }
+                    }
+                    resVals.sort((a,b)=>a-b);
+                    let q1 = resVals[Math.floor(resVals.length * 0.25)] || 0;
+                    let q3 = resVals[Math.floor(resVals.length * 0.75)] || 0;
+                    let iqr = q3 - q1;
+                    let lower = q1 - 1.5 * iqr;
+                    let upper = q3 + 1.5 * iqr;
+                    
+                    let res = val - trend;
+                    let isOutOfBounds = (key.toLowerCase() === 'hr' && (val < 30 || val > 250)) ||
+                                        (key.toLowerCase() === 'smo2' && (val < 0 || val > 100));
+
+                    if (res < lower || res > upper || isOutOfBounds) {
+                        cleanData[i][key] = null; 
+                        outlierCount++;
+                    }
+                } else if (val === null || isNaN(val) || val === '') {
+                    cleanData[i][key] = null;
+                    outlierCount++;
+                }
+            }
+
+            // 2. Linear Interpolation for Imputation
+            for (let i = 0; i < cleanData.length; i++) {
+                if (cleanData[i][key] === null) {
+                    imputedFlags[i] = true;
+                    let prevIdx = -1, nextIdx = -1;
+                    for (let j = i - 1; j >= 0; j--) { if (cleanData[j][key] !== null) { prevIdx = j; break; } }
+                    for (let j = i + 1; j < cleanData.length; j++) { if (cleanData[j][key] !== null) { nextIdx = j; break; } }
+
+                    if (prevIdx !== -1 && nextIdx !== -1) {
+                        let t0 = timeArr[prevIdx], t1 = timeArr[nextIdx], t = timeArr[i];
+                        let y0 = cleanData[prevIdx][key], y1 = cleanData[nextIdx][key];
+                        // Avoid division by zero
+                        if (t1 - t0 === 0) cleanData[i][key] = y0;
+                        else cleanData[i][key] = y0 + (y1 - y0) * ((t - t0) / (t1 - t0));
+                    } else if (prevIdx !== -1) {
+                        cleanData[i][key] = cleanData[prevIdx][key];
+                    } else if (nextIdx !== -1) {
+                        cleanData[i][key] = cleanData[nextIdx][key];
+                    } else {
+                        cleanData[i][key] = 0;
                     }
                 }
             }
-            if(residuals.length < 4) return { clean: cleanData, count: 0 };
-            
-            let resVals = residuals.map(r => r.res).sort((a,b) => a-b);
-            let q1 = resVals[Math.floor(resVals.length * 0.25)];
-            let q3 = resVals[Math.floor(resVals.length * 0.75)];
-            let iqr = q3 - q1;
-            let lower = q1 - 1.5 * iqr; // Stricter bounds for artifact removal
-            let upper = q3 + 1.5 * iqr; 
-            
-            residuals.forEach(item => {
-                let isOutOfBounds = (key.toLowerCase() === 'hr' && (item.val < 30 || item.val > 250)) ||
-                                    (key.toLowerCase() === 'smo2' && (item.val < 0 || item.val > 100));
-                if (item.res < lower || item.res > upper || isOutOfBounds) {
-                    cleanData[item.index][key] = item.trend; 
-                    outlierCount++;
-                }
-            });
-            return { clean: cleanData, count: outlierCount };
+            return { clean: cleanData, count: outlierCount, flags: imputedFlags };
         }
 
         function smoothArray(arr, windowSize) {
@@ -495,9 +528,12 @@
 
             let time = rawData.map(d => parseFloat(d[timeKey]));
 
-            let smo2Data = removeOutliers(rawData, smo2Key);
-            let hrData = removeOutliers(smo2Data.clean, hrKey);
+            let smo2Data = cleanAndImpute(rawData, smo2Key, time);
+            let hrData = cleanAndImpute(smo2Data.clean, hrKey, time);
             document.getElementById('outliersRemoved').innerText = smo2Data.count + hrData.count;
+
+            let smo2Flags = smo2Data.flags;
+            let hrFlags = hrData.flags;
 
             let smo2 = smoothArray(hrData.clean.map(d => parseFloat(d[smo2Key])), smoothWin);
             let hr = smoothArray(hrData.clean.map(d => parseFloat(d[hrKey])), smoothWin);
@@ -565,25 +601,28 @@
                 if (i < finalSprints.length - 1) {
                     intervals.push({ type: 'Recovery', start: finalSprints[i].nadir, end: finalSprints[i+1].peak });
                 } else if (includeFinalRec) {
+                    // Find SmO2 Plateau
                     let searchEnd = Math.min(smo2.length - 1, finalSprints[i].nadir + 180); 
                     let plateauIdx = finalSprints[i].nadir;
                     let maxS = smo2[plateauIdx];
                     for(let j = plateauIdx; j <= searchEnd; j++) {
-                        if(smo2[j] > maxS) {
-                            maxS = smo2[j];
-                            plateauIdx = j;
-                        }
+                        if(smo2[j] > maxS) { maxS = smo2[j]; plateauIdx = j; }
                     }
+                    // Determine where it hits 1% of the plateau
                     let threshold = maxS - 1.0; 
                     let safeEnd = plateauIdx;
                     for(let j = finalSprints[i].nadir; j <= plateauIdx; j++) {
-                        if(smo2[j] >= threshold) {
-                            safeEnd = j;
-                            break;
-                        }
+                        if(smo2[j] >= threshold) { safeEnd = j; break; }
                     }
-                    if (safeEnd - finalSprints[i].nadir < 5) safeEnd = Math.min(time.length - 1, finalSprints[i].nadir + avgRecPts);
-                    intervals.push({ type: 'Recovery', start: finalSprints[i].nadir, end: safeEnd });
+                    // ADD 30 SECONDS (V8.3 requirement)
+                    let targetTime = time[safeEnd] + 30;
+                    let finalSafeEnd = safeEnd;
+                    for(let j = safeEnd; j < time.length; j++) {
+                        if(time[j] >= targetTime) { finalSafeEnd = j; break; }
+                    }
+                    if (finalSafeEnd === safeEnd) finalSafeEnd = Math.min(time.length - 1, safeEnd + 30);
+                    
+                    intervals.push({ type: 'Recovery', start: finalSprints[i].nadir, end: finalSafeEnd });
                 }
             }
 
@@ -677,20 +716,22 @@
             let minSmo2 = Math.min(...activeSmo2.filter(v=>v!==null));
             let maxSmo2 = Math.max(...activeSmo2.filter(v=>v!==null));
             
-            let lagSum = 0, lagCount = 0;
+                        let lagSum = 0, lagCount = 0;
             intervals.filter(i => i.type === 'Sprint').forEach(sprint => {
                 let sIdx = sprint.start;
                 let eIdx = Math.min(time.length - 1, sprint.end + 30);
-                let tChunk = time.slice(sIdx, eIdx);
-                let hChunk = hr.slice(sIdx, eIdx);
-                let sChunk = smo2.slice(sIdx, eIdx);
+                let hChunk = activeHr.slice(sIdx - sessionStartIdx, eIdx - sessionStartIdx);
+                let sChunk = activeSmo2.slice(sIdx - sessionStartIdx, eIdx - sessionStartIdx);
+                let tChunk = activeTime.slice(sIdx - sessionStartIdx, eIdx - sessionStartIdx);
                 if (hChunk.length > 0 && sChunk.length > 0) {
                     let hMax = Math.max(...hChunk.filter(v=>v!==null));
                     let sMin = Math.min(...sChunk.filter(v=>v!==null));
                     let tHMax = tChunk[hChunk.indexOf(hMax)];
                     let tSMin = tChunk[sChunk.indexOf(sMin)];
-                    lagSum += Math.abs(tHMax - tSMin);
-                    lagCount++;
+                    if(tHMax !== undefined && tSMin !== undefined) {
+                        lagSum += Math.abs(tHMax - tSMin);
+                        lagCount++;
+                    }
                 }
             });
             let lag = lagCount > 0 ? (lagSum / lagCount) : 0;
@@ -734,7 +775,9 @@
                     labels: time,
                     datasets: [
                         { label: 'Raw SmO₂ (%)', data: smo2, borderColor: '#0284c7', yAxisID: 'y', tension: 0.2, pointRadius: 0, borderWidth: 2},
-                        { label: 'Raw HR (bpm)', data: hr, borderColor: '#dc2626', yAxisID: 'y1', tension: 0.2, pointRadius: 0, borderWidth: 2}
+                        { label: 'Imputed SmO₂', data: smo2.map((v, i) => smo2Flags[i] ? v : null), backgroundColor: '#f59e0b', borderColor: '#f59e0b', pointRadius: 4, showLine: false, yAxisID: 'y'},
+                        { label: 'Raw HR (bpm)', data: hr, borderColor: '#dc2626', yAxisID: 'y1', tension: 0.2, pointRadius: 0, borderWidth: 2},
+                        { label: 'Imputed HR', data: hr.map((v, i) => hrFlags[i] ? v : null), backgroundColor: '#d97706', borderColor: '#d97706', pointRadius: 4, showLine: false, yAxisID: 'y1'}
                     ]
                 },
                 options: {
@@ -777,3 +820,4 @@
     </script>
 </body>
 </html>
+
