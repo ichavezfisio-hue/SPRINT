@@ -1,0 +1,779 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SPRINT Analyzer Pro V8.2</title>
+    <!-- Chart.js & Plugins -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation@2.1.0/dist/chartjs-plugin-annotation.min.js"></script>
+    <style>
+        /* LIGHT THEME VARIABLES */
+        :root { 
+            --bg: #f8fafc; 
+            --surface: #ffffff; 
+            --accent: #0284c7; 
+            --hr: #dc2626; 
+            --text: #0f172a; 
+            --text-muted: #64748b;
+            --success: #16a34a; 
+            --warning: #d97706; 
+            --border: #e2e8f0;
+            --sine: #f59e0b;
+        }
+        body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg); color: var(--text); padding: 20px; margin: 0; }
+        .container { max-width: 1300px; margin: 0 auto; }
+        .header { text-align: center; border-bottom: 2px solid var(--border); padding-bottom: 10px; margin-bottom: 20px; }
+        .panel { background: var(--surface); border-radius: 8px; padding: 20px; margin-bottom: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); border: 1px solid var(--border); }
+        .flex-row { display: flex; gap: 15px; flex-wrap: wrap; align-items: stretch; }
+        .metric-card { flex: 1; background: var(--bg); padding: 15px; border-radius: 6px; text-align: center; border: 1px solid var(--border); }
+        .metric-title { font-size: 0.8em; color: var(--text-muted); text-transform: uppercase; letter-spacing: 1px; font-weight: bold; }
+        .metric-val { font-size: 1.5em; font-weight: bold; color: var(--accent); margin-top: 5px;}
+        input[type="file"], select { padding: 10px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 5px; cursor: pointer; }
+        input[type="number"] { padding: 8px; background: var(--bg); color: var(--text); border: 1px solid var(--border); border-radius: 4px; }
+        input[type="checkbox"] { transform: scale(1.3); cursor: pointer; }
+        button { padding: 10px 20px; background: var(--accent); color: #fff; border: none; border-radius: 5px; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        button:hover { background: #0369a1; }
+        .alert-box { background: rgba(239, 68, 68, 0.1); border-left: 5px solid var(--hr); padding: 15px; margin-bottom: 20px; border-radius: 4px; display: none; color: #7f1d1d;}
+        .highlight-win { font-weight: bold; padding: 2px 6px; border-radius: 4px; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd;}
+        .table-wrapper { overflow-x: auto; margin-top: 15px; }
+        table { width: 100%; border-collapse: collapse; font-size: 0.85em; }
+        th, td { padding: 10px; border-bottom: 1px solid var(--border); text-align: left; }
+        th { background: var(--bg); color: var(--text-muted); text-transform: uppercase; }
+        tr:hover { background-color: #f1f5f9; }
+        .chart-container { position: relative; height: 450px; width: 100%; }
+        h3 { margin-top: 0; color: #1e293b; display: inline-block; }
+        .panel-header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding-bottom: 10px; margin-bottom: 15px; }
+        .text-section { font-size: 0.9em; color: #334155; line-height: 1.5; }
+        .action-btn { background: #e2e8f0; color: #0f172a; font-size: 0.85em; padding: 6px 12px; border-radius: 4px; border: 1px solid #cbd5e1; cursor: pointer; font-weight: bold; transition: 0.2s; }
+        .action-btn:hover { background: #cbd5e1; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1 style="color:var(--accent); margin-bottom: 5px;">⚡ SPRINT: Interactive SIT Analyzer V8.2</h1>
+            <p style="color:var(--text-muted); margin-top: 0;">Automated Segmentation, Global AIC Modeling & Detrended Sinusoidal Synchronization</p>
+        </div>
+
+        <div class="alert-box" id="alertBox">
+            <strong>⚠️ Poor Model Fitting Detected:</strong> The average R² for the intervals is exceptionally low (< 0.60). Consider adjusting smoothing or verifying sensor data.
+        </div>
+
+        <div class="panel flex-row">
+            <div>
+                <label style="display:block; margin-bottom:5px; color:var(--text-muted); font-size:0.85em;">1. Upload CSV</label>
+                <input type="file" id="csvFileInput" accept=".csv" multiple>
+            </div>
+            <div id="fileSelectorContainer" style="display:none;">
+                <label style="display:block; margin-bottom:5px; color:var(--text-muted); font-size:0.85em;">2. Select Athlete</label>
+                <select id="fileSelector"></select>
+            </div>
+            <div style="margin-left:auto; display:flex; gap:15px; align-items:flex-end;">
+                <div>
+                    <label style="display:block; margin-bottom:5px; color:var(--text-muted); font-size:0.85em;">Warm-up (s)</label>
+                    <input type="number" id="warmup" value="300" min="0" style="width: 70px;">
+                </div>
+                <div>
+                    <label style="display:block; margin-bottom:5px; color:var(--text-muted); font-size:0.85em;">Sprints</label>
+                    <input type="number" id="expectedSprints" value="6" min="1" style="width: 60px;">
+                </div>
+                <div>
+                    <label style="display:block; margin-bottom:5px; color:var(--text-muted); font-size:0.85em;">Smoothing</label>
+                    <input type="number" id="smoothing" value="10" min="1" style="width: 60px;">
+                </div>
+                <div style="display:flex; flex-direction:column; justify-content:center; align-items:center; margin-bottom:5px;">
+                    <label style="color:var(--text-muted); font-size:0.85em; margin-bottom:8px;">Final Active Rec</label>
+                    <input type="checkbox" id="includeFinalRec" checked>
+                </div>
+                <button onclick="processData()">Analyze Session</button>
+            </div>
+        </div>
+
+        <div class="panel" id="metricsPanel" style="display:none;">
+            <div class="panel-header"><h3>Data Quality & Global Modeling</h3></div>
+            <div class="flex-row">
+                <div class="metric-card"><div class="metric-title">Data Resolution</div><div class="metric-val" id="dataRes">--</div></div>
+                <div class="metric-card"><div class="metric-title">Outliers Removed</div><div class="metric-val" id="outliersRemoved" style="color:var(--warning);">--</div></div>
+                <div class="metric-card"><div class="metric-title">SmO₂ Global Best Fit</div><div class="metric-val" id="globalBestSmo2">--</div></div>
+                <div class="metric-card"><div class="metric-title">HR Global Best Fit</div><div class="metric-val" id="globalBestHr" style="color:var(--hr);">--</div></div>
+            </div>
+            
+            <div class="panel-header" style="margin-top:25px;"><h3 style="color:var(--sine);">Cardiometabolic Synchronization (Detrended Sine Models)</h3></div>
+            <div class="flex-row">
+                <div class="metric-card"><div class="metric-title">Cross-Correlation (r)</div><div class="metric-val" id="crossCorr" style="color:var(--sine);">--</div></div>
+                <div class="metric-card"><div class="metric-title">Phase Shift (Lag)</div><div class="metric-val" id="phaseShift" style="color:var(--sine);">--</div></div>
+                <div class="metric-card"><div class="metric-title">SmO₂ Detrended Sine</div><div class="metric-val" id="smo2SineModel" style="color:var(--accent);">--</div></div>
+                <div class="metric-card"><div class="metric-title">HR Detrended Sine</div><div class="metric-val" id="hrSineModel" style="color:var(--hr);">--</div></div>
+            </div>
+
+            <div class="panel-header" style="margin-top:25px;"><h3>Session Fatigue Highlights</h3></div>
+            <div class="flex-row">
+                <div class="metric-card"><div class="metric-title">Wavelength (Period)</div><div class="metric-val" id="wavelength">--</div></div>
+                <div class="metric-card"><div class="metric-title">SmO₂ Overall Amplitude</div><div class="metric-val" id="smo2Amp">--</div></div>
+                <div class="metric-card"><div class="metric-title">SmO₂ Deterioration</div><div class="metric-val" id="smo2Fatigue">--</div></div>
+                <div class="metric-card"><div class="metric-title">HR Rec Deterioration</div><div class="metric-val" id="hrFatigue" style="color:var(--hr);">--</div></div>
+            </div>
+        </div>
+
+        <!-- MAIN CHART -->
+        <div class="panel" id="mainChartContainer" style="display:none;">
+            <div class="panel-header">
+                <h3 style="color:var(--accent);">1. Kinetic Interval Analyzer (Raw Kinetics)</h3>
+                <button class="action-btn" onclick="downloadChart('mainChart', 'Sprint_Kinetics.png')">📸 Save Image</button>
+            </div>
+            <div class="chart-container">
+                <canvas id="mainChart"></canvas>
+            </div>
+        </div>
+
+        <!-- SINE CHART -->
+        <div class="panel" id="sineChartContainer" style="display:none;">
+            <div class="panel-header">
+                <h3 style="color:var(--sine);">2. Optimal Sine Wave Synchronization</h3>
+                <button class="action-btn" onclick="downloadChart('sineChart', 'Sine_Synchronization.png')">📸 Save Image</button>
+            </div>
+            <div class="chart-container">
+                <canvas id="sineChart"></canvas>
+            </div>
+        </div>
+
+        <div class="panel" id="tablePanel" style="display:none;">
+            <div class="panel-header">
+                <h3 style="color:var(--accent);">Sprint Kinetics (Deoxygenation & HR Increment)</h3>
+                <button class="action-btn" onclick="exportTableToCSV('sprintTable', 'Sprint_Kinetics.csv')">💾 Export CSV</button>
+            </div>
+            <div class="table-wrapper">
+                <table id="sprintTable" style="text-align: center;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:center;">Sprint #</th>
+                            <th style="text-align:center;">Duration (s)</th>
+                            <th style="text-align:center;">Δ SmO₂ (Span)</th>
+                            <th style="text-align:center;">SmO₂ Best Local Model</th>
+                            <th style="text-align:center;">SmO₂ Slope / τ</th>
+                            <th style="text-align:center;">SmO₂ R²</th>
+                            <th style="text-align:center;">Δ HR (Increment)</th>
+                            <th style="text-align:center;">HR Best Local Model</th>
+                            <th style="text-align:center;">HR Slope / τ</th>
+                            <th style="text-align:center;">HR R²</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+            
+            <div class="panel-header" style="margin-top:30px;">
+                <h3 style="color:var(--success);">Recovery Kinetics (Reoxygenation & HR Drop)</h3>
+                <button class="action-btn" onclick="exportTableToCSV('recoveryTable', 'Recovery_Kinetics.csv')">💾 Export CSV</button>
+            </div>
+            <div class="table-wrapper">
+                <table id="recoveryTable" style="text-align: center;">
+                    <thead>
+                        <tr>
+                            <th style="text-align:center;">Rec #</th>
+                            <th style="text-align:center;">Duration (s)</th>
+                            <th style="text-align:center;">Δ SmO₂ (Span)</th>
+                            <th style="text-align:center;">SmO₂ Best Local Model</th>
+                            <th style="text-align:center;">SmO₂ Slope / τ</th>
+                            <th style="text-align:center;">SmO₂ R²</th>
+                            <th style="text-align:center;">Δ HR (Drop)</th>
+                            <th style="text-align:center;">HR Best Local Model</th>
+                            <th style="text-align:center;">HR Slope / τ</th>
+                            <th style="text-align:center;">HR R²</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="panel" id="glossaryPanel" style="margin-top: 30px;">
+            <div class="panel-header"><h3>📖 Glossary of Terms</h3></div>
+            <table>
+                <tr>
+                    <td style="width: 25%;"><strong>Cross-Correlation (r)</strong></td>
+                    <td>Pearson correlation between HR and (inverted) SmO₂ during the active session. High values (>0.80) indicate strong structural cardiometabolic synchronization.</td>
+                </tr>
+                <tr>
+                    <td><strong>Phase Shift</strong></td>
+                    <td>Time delay (lag) between the peak Heart Rate demand and the peak SmO₂ extraction nadir.</td>
+                </tr>
+                <tr>
+                    <td><strong>Wavelength / Period</strong></td>
+                    <td>Average duration (seconds) to complete one full cycle (Sprint start to next Sprint start).</td>
+                </tr>
+                <tr>
+                    <td><strong>SmO₂ Interval Deterioration</strong></td>
+                    <td>Difference in absolute SmO₂ drop between Sprint 1 and the Final Sprint. Positive = blunted extraction (fatigue).</td>
+                </tr>
+                <tr>
+                    <td><strong>HR Recovery Deterioration</strong></td>
+                    <td>Difference in absolute HR drop between Recovery 1 and Final Recovery. Positive = parasympathetic withdrawal.</td>
+                </tr>
+            </table>
+
+            <div class="panel-header" style="margin-top: 25px;"><h3>➗ Calculus & Detrended Sine Methodology</h3></div>
+            <div class="text-section">
+                <p><b>Model Independence:</b> To prevent statistical bias caused by the discrepancy in local fitting models, <b>the deterioration metrics are calculated using absolute raw amplitudes</b>.</p>
+                <ul>
+                    <li><b>SmO₂ Deterioration Formula:</b> <code>|ΔSmO₂ Sprint 1 (Span)| - |ΔSmO₂ Sprint N (Span)|</code></li>
+                    <li><b>HR Rec Deterioration Formula:</b> <code>|ΔHR Recovery 1 (Span)| - |ΔHR Recovery N (Span)|</code></li>
+                </ul>
+                <p><b>Detrended Sine Wave Fitting:</b> Physiological data during exercise naturally "drifts" (e.g., cardiac drift upward, or oxygenation baseline shift downward). If not corrected, this inclination forces the model to artificially guess "dampened" or "progressive" just to chase the drifting mean.</p>
+                <ul>
+                    <li><b>V8 Upgrade:</b> The engine now calculates the linear baseline drift (inclination) of the entire session and subtracts it (Detrending). It then uses a grid-search to fit the pure oscillatory sine wave around this trendline. This guarantees the wave model accurately captures <i>true amplitude behavior</i> rather than mathematical drift.</li>
+                    <li><b>Standard Sine:</b> Consistent amplitude throughout all intervals.</li>
+                    <li><b>Dampened Sine:</b> The signal amplitude decays over time (e.g., progressive fatigue leading to blunted SmO₂ extraction or failure to fully recover HR).</li>
+                    <li><b>Progressive Sine:</b> The signal amplitude progressively increases over time (e.g., escalating physiological strain or warm-up effect).</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // BUG FIX: Safely register the annotation plugin to prevent TypeError execution halts
+        if (typeof annotationPlugin !== 'undefined') {
+            Chart.register(annotationPlugin);
+        } else if (typeof window['chartjs-plugin-annotation'] !== 'undefined') {
+            Chart.register(window['chartjs-plugin-annotation']);
+        }
+
+        let datasets = {};
+        let currentMainChart = null;
+        let currentSineChart = null;
+
+        // --- Export Functions ---
+        function downloadChart(canvasId, filename) {
+            const canvas = document.getElementById(canvasId);
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = canvas.toDataURL('image/png', 1.0);
+            link.click();
+        }
+
+        function exportTableToCSV(tableId, filename) {
+            const table = document.getElementById(tableId);
+            let csv = [];
+            for (let i = 0; i < table.rows.length; i++) {
+                let row = [], cols = table.rows[i].querySelectorAll('td, th');
+                for (let j = 0; j < cols.length; j++) {
+                    let data = cols[j].innerText.replace(/(\r\n|\n|\r)/gm, ' ').replace(/ +/g, ' ').trim();
+                    row.push('"' + data + '"');
+                }
+                csv.push(row.join(','));
+            }
+            const csvFile = new Blob([csv.join('\n')], {type: 'text/csv'});
+            const link = document.createElement('a');
+            link.download = filename;
+            link.href = window.URL.createObjectURL(csvFile);
+            link.click();
+        }
+
+        document.getElementById('csvFileInput').addEventListener('change', function(e) {
+            const files = e.target.files;
+            const selector = document.getElementById('fileSelector');
+            const selectorContainer = document.getElementById('fileSelectorContainer');
+            selector.innerHTML = '';
+            datasets = {};
+            if (files.length > 0) {
+                selectorContainer.style.display = 'block';
+                Array.from(files).forEach(file => {
+                    const opt = document.createElement('option');
+                    opt.value = file.name;
+                    opt.textContent = file.name;
+                    selector.appendChild(opt);
+                    Papa.parse(file, { header: true, dynamicTyping: true, skipEmptyLines: true,
+                        complete: function(results) { datasets[file.name] = results.data; }
+                    });
+                });
+            }
+        });
+
+        function removeOutliers(data, key) {
+            let window = 11;
+            let cleanData = JSON.parse(JSON.stringify(data)); 
+            let residuals = [];
+            let outlierCount = 0;
+            
+            function getMedian(arr) {
+                let sorted = [...arr].sort((a,b)=>a-b);
+                let mid = Math.floor(sorted.length/2);
+                return sorted.length % 2 !== 0 ? sorted[mid] : (sorted[mid-1] + sorted[mid]) / 2;
+            }
+
+            for (let i = 0; i < data.length; i++) {
+                let start = Math.max(0, i - Math.floor(window/2));
+                let end = Math.min(data.length, i + Math.floor(window/2));
+                let slice = data.slice(start, end).map(d => d[key]).filter(v => v !== null && !isNaN(v));
+                if (slice.length > 0) {
+                    let trend = getMedian(slice); // Use median to prevent artifacts from skewing the mean
+                    if(data[i][key] !== null && !isNaN(data[i][key])) {
+                        residuals.push({ index: i, val: data[i][key], trend: trend, res: data[i][key] - trend });
+                    }
+                }
+            }
+            if(residuals.length < 4) return { clean: cleanData, count: 0 };
+            
+            let resVals = residuals.map(r => r.res).sort((a,b) => a-b);
+            let q1 = resVals[Math.floor(resVals.length * 0.25)];
+            let q3 = resVals[Math.floor(resVals.length * 0.75)];
+            let iqr = q3 - q1;
+            let lower = q1 - 1.5 * iqr; // Stricter bounds for artifact removal
+            let upper = q3 + 1.5 * iqr; 
+            
+            residuals.forEach(item => {
+                let isOutOfBounds = (key.toLowerCase() === 'hr' && (item.val < 30 || item.val > 250)) ||
+                                    (key.toLowerCase() === 'smo2' && (item.val < 0 || item.val > 100));
+                if (item.res < lower || item.res > upper || isOutOfBounds) {
+                    cleanData[item.index][key] = item.trend; 
+                    outlierCount++;
+                }
+            });
+            return { clean: cleanData, count: outlierCount };
+        }
+
+        function smoothArray(arr, windowSize) {
+            let res = [];
+            for (let i = 0; i < arr.length; i++) {
+                let start = Math.max(0, i - windowSize + 1);
+                let slice = arr.slice(start, i + 1).filter(v => v !== null && !isNaN(v));
+                res.push(slice.length ? slice.reduce((a,b)=>a+b,0)/slice.length : null);
+            }
+            return res;
+        }
+
+        function calcLinear(x, y) {
+            let n = x.length;
+            if(n < 3) return { r2: 0, aic: Infinity, slope: 0, desc: "N/A" };
+            let sumX=0, sumY=0, sumXY=0, sumXX=0;
+            for(let i=0; i<n; i++){ sumX += x[i]; sumY += y[i]; sumXY += x[i]*y[i]; sumXX += x[i]*x[i]; }
+            let denom = (n * sumXX - sumX * sumX);
+            let slope = denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
+            let intercept = (sumY - slope * sumX) / n;
+            let ssTot = 0, ssRes = 0, meanY = sumY/n;
+            for(let i=0; i<n; i++){
+                let pred = slope * x[i] + intercept;
+                ssTot += Math.pow(y[i] - meanY, 2);
+                ssRes += Math.pow(y[i] - pred, 2);
+            }
+            let r2 = ssTot === 0 ? 0 : 1 - (ssRes/ssTot);
+            let aic = ssRes <= 0 ? -Infinity : n * Math.log(ssRes/n) + 2 * 2;
+            return { r2: Math.max(0, r2), aic: aic, val: slope, type: 'Linear' };
+        }
+
+        function calcExponential(x, y) {
+            let n = x.length;
+            if(n < 5) return { r2: 0, aic: Infinity, tau: 0, desc: "N/A" };
+            let startY = y[0], endY = y[n-1];
+            let span = endY - startY;
+            let targetY = startY + (span * 0.632);
+            let tau = 0;
+            for(let i=1; i<n; i++){
+                if((span > 0 && y[i] >= targetY) || (span < 0 && y[i] <= targetY)){ tau = x[i] - x[0]; break; }
+            }
+            if(tau === 0) tau = x[n-1] - x[0]; 
+            let ssTot = 0, ssRes = 0, meanY = y.reduce((a,b)=>a+b,0)/n;
+            for(let i=0; i<n; i++){
+                let t = x[i] - x[0];
+                let pred = startY + span * (1 - Math.exp(-t / tau));
+                ssTot += Math.pow(y[i] - meanY, 2);
+                ssRes += Math.pow(y[i] - pred, 2);
+            }
+            let r2 = ssTot === 0 ? 0 : 1 - (ssRes/ssTot);
+            let aic = ssRes <= 0 ? -Infinity : n * Math.log(ssRes/n) + 2 * 3;
+            return { r2: Math.max(0, r2), aic: aic, val: tau, type: 'Exponential' };
+        }
+
+        function getPearsonR(x, y) {
+            let n = x.length;
+            if(n === 0) return 0;
+            let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+            for(let i=0; i<n; i++) {
+                sumX += x[i]; sumY += y[i];
+                sumXY += x[i]*y[i];
+                sumX2 += x[i]*x[i]; sumY2 += y[i]*y[i];
+            }
+            let num = n * sumXY - sumX * sumY;
+            let den = Math.sqrt((n * sumX2 - sumX*sumX) * (n * sumY2 - sumY*sumY));
+            return den === 0 ? 0 : num / den;
+        }
+
+        // V8: Detrended Sine Grid Search (Fixes Inclination Bug)
+        function fitAdvancedSine(t_arr, y_arr, period) {
+            if(t_arr.length < 5 || period <= 0) return { r2: 0, type: 'N/A', preds: t_arr.map(()=>null) };
+            
+            // 1. Calculate Linear Baseline Drift (Trendline)
+            let n = t_arr.length;
+            let sumT=0, sumY=0, sumTY=0, sumTT=0;
+            let t0 = t_arr[0];
+            
+            for(let i=0; i<n; i++) {
+                let t = t_arr[i] - t0;
+                sumT += t; sumY += y_arr[i];
+                sumTY += t * y_arr[i]; sumTT += t * t;
+            }
+            
+            let denom = (n * sumTT - sumT * sumT);
+            let slope = denom !== 0 ? (n * sumTY - sumT * sumY) / denom : 0;
+            let intercept = (sumY - slope * sumT) / n;
+
+            // 2. Detrend the Data to Isolate Pure Wave Amplitude
+            let detrended = [];
+            let ssTot = 0;
+            let mean_y = sumY / n;
+            for(let i=0; i<n; i++) {
+                let t = t_arr[i] - t0;
+                let baseline = slope * t + intercept;
+                detrended.push(y_arr[i] - baseline);
+                ssTot += Math.pow(y_arr[i] - mean_y, 2);
+            }
+            
+            if(ssTot === 0) return { r2: 0, type: 'Standard', preds: y_arr.map(()=>mean_y) };
+
+            // 3. Estimate initial amplitude of the detrended wave
+            let max_d = Math.max(...detrended);
+            let min_d = Math.min(...detrended);
+            let base_amp = (max_d - min_d) / 2;
+
+            let bestR2 = -Infinity;
+            let bestPreds = [];
+            let bestType = 'Standard';
+            let bestK = 0;
+
+            let k_values = [-0.015, -0.01, -0.005, -0.002, -0.001, 0, 0.001, 0.002, 0.005, 0.01, 0.015];
+            let amp_multipliers = [0.6, 0.8, 1.0, 1.2, 1.4];
+
+            // 4. Grid Search around Baseline
+            for (let a_mult of amp_multipliers) {
+                let A = base_amp * a_mult;
+                for (let phase = 0; phase < period; phase += period/20) {
+                    for (let k of k_values) {
+                        let ssRes = 0;
+                        let preds = [];
+                        for(let i=0; i<n; i++) {
+                            let t = t_arr[i] - t0;
+                            let baseline = slope * t + intercept;
+                            let current_amp = A * Math.exp(k * t);
+                            // Combine Baseline Drift + Sine Wave Oscillation
+                            let val = baseline + current_amp * Math.cos((2 * Math.PI / period) * (t - phase));
+                            preds.push(val);
+                            ssRes += Math.pow(y_arr[i] - val, 2);
+                        }
+                        let r2 = 1 - (ssRes / ssTot);
+                        if (r2 > bestR2) {
+                            bestR2 = r2;
+                            bestK = k;
+                            bestPreds = preds;
+                        }
+                    }
+                }
+            }
+
+            if (bestK < 0) bestType = 'Dampened';
+            else if (bestK > 0) bestType = 'Progressive';
+            else bestType = 'Standard';
+
+            return { r2: Math.max(0, bestR2), type: bestType, preds: bestPreds };
+        }
+
+        function processData() {
+            const fileSelect = document.getElementById('fileSelector');
+            if(!fileSelect.value || !datasets[fileSelect.value]) return alert("Select a CSV file.");
+            
+            let rawData = datasets[fileSelect.value];
+            let smoothWin = parseInt(document.getElementById('smoothing').value) || 10;
+            let warmupSecs = parseInt(document.getElementById('warmup').value) || 0;
+            let expectedSprints = parseInt(document.getElementById('expectedSprints').value) || 6;
+            let includeFinalRec = document.getElementById('includeFinalRec').checked;
+
+            let timeKey = Object.keys(rawData[0]).find(k => k.toLowerCase().includes('time'));
+            let hrKey = Object.keys(rawData[0]).find(k => k.toLowerCase() === 'hr');
+            let smo2Key = Object.keys(rawData[0]).find(k => k.toLowerCase() === 'smo2');
+            if (!timeKey || !hrKey || !smo2Key) return alert("CSV must contain 'Time', 'HR', and 'SmO2'.");
+
+            let time = rawData.map(d => parseFloat(d[timeKey]));
+
+            let smo2Data = removeOutliers(rawData, smo2Key);
+            let hrData = removeOutliers(smo2Data.clean, hrKey);
+            document.getElementById('outliersRemoved').innerText = smo2Data.count + hrData.count;
+
+            let smo2 = smoothArray(hrData.clean.map(d => parseFloat(d[smo2Key])), smoothWin);
+            let hr = smoothArray(hrData.clean.map(d => parseFloat(d[hrKey])), smoothWin);
+
+            let diffs = [];
+            for(let i=1; i<time.length; i++) {
+                if(!isNaN(time[i]) && !isNaN(time[i-1])) diffs.push(time[i] - time[i-1]);
+            }
+            diffs.sort((a,b) => a-b);
+            let resolution = diffs.length > 0 ? Math.round(diffs[Math.floor(diffs.length/2)]) : 0;
+            document.getElementById('dataRes').innerText = resolution + ' sec';
+
+            let validIdxs = [];
+            for(let i=0; i<time.length; i++) {
+                if(time[i] >= time[0] + warmupSecs) validIdxs.push(i);
+            }
+            
+            let candidates = [];
+            let state = 'peak'; 
+            let tempPeak = validIdxs[0];
+            let tempNadir = validIdxs[0];
+
+            for(let i = 1; i < validIdxs.length; i++) {
+                let idx = validIdxs[i];
+                let prevIdx = validIdxs[i-1];
+
+                if(state === 'peak') {
+                    if(smo2[idx] > smo2[prevIdx]) {
+                        tempPeak = idx; // climbing
+                    } else if (smo2[idx] < smo2[tempPeak] - 1.5) { 
+                        state = 'nadir';
+                        tempNadir = idx;
+                    }
+                } else if (state === 'nadir') {
+                    if(smo2[idx] < smo2[prevIdx]) {
+                        tempNadir = idx; // falling
+                    } else if (smo2[idx] > smo2[tempNadir] + 1.5) {
+                        let dropAmt = smo2[tempPeak] - smo2[tempNadir];
+                        candidates.push({ peak: tempPeak, nadir: tempNadir, drop: dropAmt });
+                        state = 'peak';
+                        tempPeak = idx;
+                    }
+                }
+            }
+            if(state === 'nadir') {
+                candidates.push({ peak: tempPeak, nadir: validIdxs[validIdxs.length-1], drop: smo2[tempPeak] - smo2[validIdxs[validIdxs.length-1]] });
+            }
+
+            candidates.sort((a,b) => b.drop - a.drop);
+            let finalSprints = candidates.slice(0, expectedSprints);
+            finalSprints.sort((a,b) => a.peak - b.peak); 
+
+            let avgRecPts = 60; 
+            if (finalSprints.length > 1) {
+                let totalRecPts = 0;
+                for (let i = 0; i < finalSprints.length - 1; i++) {
+                    totalRecPts += (finalSprints[i+1].peak - finalSprints[i].nadir);
+                }
+                avgRecPts = Math.floor(totalRecPts / (finalSprints.length - 1));
+            }
+
+            let intervals = [];
+            for(let i=0; i<finalSprints.length; i++) {
+                intervals.push({ type: 'Sprint', start: finalSprints[i].peak, end: finalSprints[i].nadir });
+                if (i < finalSprints.length - 1) {
+                    intervals.push({ type: 'Recovery', start: finalSprints[i].nadir, end: finalSprints[i+1].peak });
+                } else if (includeFinalRec) {
+                    let searchEnd = Math.min(smo2.length - 1, finalSprints[i].nadir + 180); 
+                    let plateauIdx = finalSprints[i].nadir;
+                    let maxS = smo2[plateauIdx];
+                    for(let j = plateauIdx; j <= searchEnd; j++) {
+                        if(smo2[j] > maxS) {
+                            maxS = smo2[j];
+                            plateauIdx = j;
+                        }
+                    }
+                    let threshold = maxS - 1.0; 
+                    let safeEnd = plateauIdx;
+                    for(let j = finalSprints[i].nadir; j <= plateauIdx; j++) {
+                        if(smo2[j] >= threshold) {
+                            safeEnd = j;
+                            break;
+                        }
+                    }
+                    if (safeEnd - finalSprints[i].nadir < 5) safeEnd = Math.min(time.length - 1, finalSprints[i].nadir + avgRecPts);
+                    intervals.push({ type: 'Recovery', start: finalSprints[i].nadir, end: safeEnd });
+                }
+            }
+
+            let totalSmo2LinAic = 0, totalSmo2ExpAic = 0;
+            let totalHrLinAic = 0, totalHrExpAic = 0;
+            let modelData = [];
+
+            intervals.forEach(intv => {
+                let tChunk = time.slice(intv.start, intv.end);
+                let sChunk = smo2.slice(intv.start, intv.end);
+                let hChunk = hr.slice(intv.start, intv.end);
+                if(tChunk.length < 5) return;
+
+                let sLin = calcLinear(tChunk, sChunk); let sExp = calcExponential(tChunk, sChunk);
+                let hLin = calcLinear(tChunk, hChunk); let hExp = calcExponential(tChunk, hChunk);
+
+                totalSmo2LinAic += sLin.aic; totalSmo2ExpAic += sExp.aic;
+                totalHrLinAic += hLin.aic; totalHrExpAic += hExp.aic;
+
+                modelData.push({ sLin, sExp, hLin, hExp, dSmo2: sChunk[sChunk.length-1]-sChunk[0], dHr: hChunk[hChunk.length-1]-hChunk[0], dur: tChunk[tChunk.length-1]-tChunk[0] });
+            });
+
+            let globalSmo2Fit = totalSmo2ExpAic < totalSmo2LinAic ? 'Exponential' : 'Linear';
+            let globalHrFit = totalHrExpAic < totalHrLinAic ? 'Exponential' : 'Linear';
+            
+            document.getElementById('globalBestSmo2').innerText = globalSmo2Fit;
+            document.getElementById('globalBestHr').innerText = globalHrFit;
+
+            let sprintBody = document.querySelector('#sprintTable tbody');
+            let recBody = document.querySelector('#recoveryTable tbody');
+            sprintBody.innerHTML = ''; recBody.innerHTML = '';
+            let annotations = {};
+            let countS = 1, countR = 1;
+            let firstS = null, lastS = null, firstR = null, lastR = null;
+            let avgR2Sum = 0, modelCount = 0;
+
+            intervals.forEach((intv, idx) => {
+                let d = modelData[idx];
+                if(!d) return;
+
+                let sBest = d.sExp.aic < d.sLin.aic ? d.sExp : d.sLin;
+                let hBest = d.hExp.aic < d.hLin.aic ? d.hExp : d.hLin;
+                avgR2Sum += sBest.r2 + hBest.r2; modelCount += 2;
+
+                let color = intv.type === 'Sprint' ? 'rgba(220, 38, 38, 0.8)' : 'rgba(22, 163, 74, 0.8)';
+                let labelText = intv.type === 'Sprint' ? `S${countS}` : `R${countR}`;
+                annotations[`line${idx}`] = {
+                    type: 'line', scaleID: 'x', value: time[intv.start],
+                    borderColor: color, borderWidth: 2, borderDash: [5, 5],
+                    label: { content: labelText, display: true, position: 'start', backgroundColor: 'rgba(255,255,255,0.9)', color: color, font: {weight: 'bold'} }
+                };
+
+                let sTag = `<span class="${sBest.type === globalSmo2Fit ? 'highlight-win' : ''}">${sBest.type}</span>`;
+                let hTag = `<span class="${hBest.type === globalHrFit ? 'highlight-win' : ''}">${hBest.type}</span>`;
+
+                let tr = document.createElement('tr');
+                tr.innerHTML = `
+                    <td style="text-align:center;">${intv.type === 'Sprint' ? countS : countR}</td>
+                    <td style="text-align:center;">${d.dur.toFixed(0)}</td>
+                    <td style="text-align:center; color:${intv.type==='Sprint'?'var(--hr)':'var(--success)'}; font-weight:bold;">${d.dSmo2 > 0 ? '+'+d.dSmo2.toFixed(1) : d.dSmo2.toFixed(1)}</td>
+                    <td style="text-align:center;">${sTag}<br><span style="font-size:0.75em;color:var(--text-muted)">AIC: ${sBest.aic.toFixed(1)}</span></td>
+                    <td style="text-align:center;">${sBest.type==='Linear' ? 'm='+(d.dSmo2/d.dur).toFixed(2)+'/s' : 'τ='+sBest.val.toFixed(1)+'s'}</td>
+                    <td style="text-align:center;">${sBest.r2.toFixed(2)}</td>
+                    <td style="text-align:center; color:${intv.type==='Sprint'?'var(--hr)':'var(--success)'}; font-weight:bold;">${d.dHr > 0 ? '+'+d.dHr.toFixed(1) : d.dHr.toFixed(1)}</td>
+                    <td style="text-align:center;">${hTag}<br><span style="font-size:0.75em;color:var(--text-muted)">AIC: ${hBest.aic.toFixed(1)}</span></td>
+                    <td style="text-align:center;">${hBest.type==='Linear' ? 'm='+(d.dHr/d.dur).toFixed(2)+'/s' : 'τ='+hBest.val.toFixed(1)+'s'}</td>
+                    <td style="text-align:center;">${hBest.r2.toFixed(2)}</td>
+                `;
+
+                if(intv.type === 'Sprint') { 
+                    sprintBody.appendChild(tr); 
+                    if(firstS===null) firstS = d.dSmo2; lastS = d.dSmo2; countS++; 
+                } else { 
+                    recBody.appendChild(tr); 
+                    if(firstR===null) firstR = d.dHr; lastR = d.dHr; countR++; 
+                }
+            });
+
+            document.getElementById('alertBox').style.display = (modelCount > 0 && (avgR2Sum/modelCount) < 0.60) ? 'block' : 'none';
+
+            let sprintStarts = intervals.filter(i => i.type === 'Sprint').map(i => time[i.start]);
+            let sessionStartIdx = intervals.length > 0 ? intervals[0].start : validIdxs[0];
+            let sessionEndIdx = intervals.length > 0 ? intervals[intervals.length-1].end : validIdxs[validIdxs.length-1];
+            
+            let activeTime = time.slice(sessionStartIdx, sessionEndIdx + 1);
+            let activeSmo2 = smo2.slice(sessionStartIdx, sessionEndIdx + 1);
+            let activeHr = hr.slice(sessionStartIdx, sessionEndIdx + 1);
+
+            let maxHr = Math.max(...activeHr.filter(v=>v!==null)); 
+            let minHr = Math.min(...activeHr.filter(v=>v!==null)); 
+            let minSmo2 = Math.min(...activeSmo2.filter(v=>v!==null));
+            let maxSmo2 = Math.max(...activeSmo2.filter(v=>v!==null));
+            
+            let lagSum = 0, lagCount = 0;
+            intervals.filter(i => i.type === 'Sprint').forEach(sprint => {
+                let sIdx = sprint.start;
+                let eIdx = Math.min(time.length - 1, sprint.end + 30);
+                let tChunk = time.slice(sIdx, eIdx);
+                let hChunk = hr.slice(sIdx, eIdx);
+                let sChunk = smo2.slice(sIdx, eIdx);
+                if (hChunk.length > 0 && sChunk.length > 0) {
+                    let hMax = Math.max(...hChunk.filter(v=>v!==null));
+                    let sMin = Math.min(...sChunk.filter(v=>v!==null));
+                    let tHMax = tChunk[hChunk.indexOf(hMax)];
+                    let tSMin = tChunk[sChunk.indexOf(sMin)];
+                    lagSum += Math.abs(tHMax - tSMin);
+                    lagCount++;
+                }
+            });
+            let lag = lagCount > 0 ? (lagSum / lagCount) : 0;
+            
+            let wLengthSecs = 0;
+            if (sprintStarts.length > 1) {
+                wLengthSecs = (sprintStarts[sprintStarts.length-1] - sprintStarts[0]) / (sprintStarts.length - 1);
+            }
+
+            let invertedSmo2 = activeSmo2.map(v => maxSmo2 - v); 
+            let rValue = getPearsonR(activeHr, invertedSmo2);
+
+            // V8: Detrended Sine Fits
+            let bestSmo2Sine = fitAdvancedSine(activeTime, activeSmo2, wLengthSecs);
+            let bestHrSine = fitAdvancedSine(activeTime, activeHr, wLengthSecs);
+
+            document.getElementById('smo2SineModel').innerHTML = `<b>${bestSmo2Sine.type}</b> <br><span style="font-size:0.7em;color:var(--text-muted)">R²: ${bestSmo2Sine.r2.toFixed(2)}</span>`;
+            document.getElementById('hrSineModel').innerHTML = `<b>${bestHrSine.type}</b> <br><span style="font-size:0.7em;color:var(--text-muted)">R²: ${bestHrSine.r2.toFixed(2)}</span>`;
+
+            document.getElementById('crossCorr').innerText = Math.abs(rValue).toFixed(2);
+            document.getElementById('phaseShift').innerText = lag.toFixed(1) + ' sec';
+            document.getElementById('wavelength').innerText = wLengthSecs > 0 ? wLengthSecs.toFixed(0) + ' s' : 'N/A';
+            
+            let smo2Fatigue = (firstS !== null && lastS !== null) ? Math.abs(firstS) - Math.abs(lastS) : 0;
+            let hrFatigue = (firstR !== null && lastR !== null) ? Math.abs(firstR) - Math.abs(lastR) : 0;
+            document.getElementById('smo2Amp').innerText = (maxSmo2 - minSmo2).toFixed(1) + '%';
+            document.getElementById('smo2Fatigue').innerText = smo2Fatigue > 0 ? '+' + smo2Fatigue.toFixed(1) + '%' : smo2Fatigue.toFixed(1) + '%';
+            document.getElementById('hrFatigue').innerText = hrFatigue > 0 ? '+' + hrFatigue.toFixed(1) + ' bpm' : hrFatigue.toFixed(1) + ' bpm';
+            
+            document.getElementById('metricsPanel').style.display = 'block';
+
+            // Chart Render
+            document.getElementById('mainChartContainer').style.display = 'block';
+            document.getElementById('tablePanel').style.display = 'block';
+            
+            if (currentMainChart) currentMainChart.destroy();
+            const ctxMain = document.getElementById('mainChart').getContext('2d');
+            currentMainChart = new Chart(ctxMain, {
+                type: 'line',
+                data: {
+                    labels: time,
+                    datasets: [
+                        { label: 'Raw SmO₂ (%)', data: smo2, borderColor: '#0284c7', yAxisID: 'y', tension: 0.2, pointRadius: 0, borderWidth: 2},
+                        { label: 'Raw HR (bpm)', data: hr, borderColor: '#dc2626', yAxisID: 'y1', tension: 0.2, pointRadius: 0, borderWidth: 2}
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+                    plugins: { annotation: { annotations: annotations }, legend: { labels: { color: '#0f172a' } } },
+                    scales: {
+                        x: { type: 'linear', title: {display: true, text: 'Time (s)', color: '#64748b'}, ticks: { color: '#64748b' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                        y: { position: 'left', title: {display: true, text: 'Muscle O₂ Saturation (%)', color: '#0284c7'}, ticks: { color: '#0284c7' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                        y1: { position: 'right', title: {display: true, text: 'Heart Rate (bpm)', color: '#dc2626'}, ticks: { color: '#dc2626' }, grid: { drawOnChartArea: false } }
+                    }
+                }
+            });
+
+            document.getElementById('sineChartContainer').style.display = 'block';
+            if (currentSineChart) currentSineChart.destroy();
+            const ctxSine = document.getElementById('sineChart').getContext('2d');
+            
+            currentSineChart = new Chart(ctxSine, {
+                type: 'line',
+                data: {
+                    labels: activeTime,
+                    datasets: [
+                        { label: 'Raw SmO₂', data: activeSmo2, borderColor: 'rgba(2, 132, 199, 0.3)', yAxisID: 'y', tension: 0.2, pointRadius: 0, borderWidth: 2},
+                        { label: 'Sine SmO₂', data: bestSmo2Sine.preds, borderColor: '#38bdf8', yAxisID: 'y', tension: 0.4, pointRadius: 0, borderWidth: 3, borderDash: [5, 5]},
+                        { label: 'Raw HR', data: activeHr, borderColor: 'rgba(220, 38, 38, 0.3)', yAxisID: 'y1', tension: 0.2, pointRadius: 0, borderWidth: 2},
+                        { label: 'Sine HR', data: bestHrSine.preds, borderColor: '#f87171', yAxisID: 'y1', tension: 0.4, pointRadius: 0, borderWidth: 3, borderDash: [5, 5]}
+                    ]
+                },
+                options: {
+                    responsive: true, maintainAspectRatio: false, interaction: { mode: 'index', intersect: false },
+                    plugins: { legend: { labels: { color: '#0f172a' } } },
+                    scales: {
+                        x: { type: 'linear', title: {display: true, text: 'Active Time Window (s)', color: '#64748b'}, ticks: { color: '#64748b' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                        y: { position: 'left', title: {display: true, text: 'SmO₂ (%)', color: '#0284c7'}, ticks: { color: '#0284c7' }, grid: { color: 'rgba(0,0,0,0.05)' } },
+                        y1: { position: 'right', title: {display: true, text: 'HR (bpm)', color: '#dc2626'}, ticks: { color: '#dc2626' }, grid: { drawOnChartArea: false } }
+                    }
+                }
+            });
+        }
+    </script>
+</body>
+</html>
